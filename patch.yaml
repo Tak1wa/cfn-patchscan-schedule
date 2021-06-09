@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Metadata:
+  Generator: "former2"
+Description: ""
+Resources:
+  SSMPatchBaseline:
+    Type: "AWS::SSM::PatchBaseline"
+    Properties:
+      Name: "windows-full-scan"
+      OperatingSystem: "WINDOWS"
+      GlobalFilters: {}
+      ApprovedPatchesComplianceLevel: "UNSPECIFIED"
+      ApprovedPatchesEnableNonSecurity: false
+      RejectedPatchesAction: "ALLOW_AS_DEPENDENCY"
+      PatchGroups: 
+        - "iwasapatch"
+      Description: "windows-full-scan"
+
+  SSMMaintenanceWindow:
+    Type: "AWS::SSM::MaintenanceWindow"
+    Properties:
+      Name: "iwasa-patch-maintenance"
+      Schedule: "cron(0 0 3 ? * * *)"
+      ScheduleTimezone: "Asia/Tokyo"
+      Duration: 1
+      Cutoff: 0
+      AllowUnassociatedTargets: true
+
+  SSMMaintenanceWindowTask:
+    Type: "AWS::SSM::MaintenanceWindowTask"
+    Properties:
+      WindowId: "mw-0f56da1547635888e"
+      Targets: 
+        - 
+          Key: "WindowTargetIds"
+          Values: 
+            - "31a5d6e3-4a04-4d36-a8e6-5e0c87627492"
+      TaskArn: "AWS-RunPatchBaseline"
+      ServiceRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ssm.amazonaws.com/AWSServiceRoleForAmazonSSM"
+      TaskType: "RUN_COMMAND"
+      TaskParameters: {}
+      Priority: 1
+      MaxConcurrency: "50"
+      MaxErrors: "0"
+      Name: "PatchingTask"
+      Description: "Created via Patch Manager Configure Patching Wizard"
+      TaskInvocationParameters: 
+        MaintenanceWindowRunCommandParameters: 
+          Parameters: 
+            Operation: 
+              - "Scan"
+            SnapshotId: 
+              - "{{WINDOW_EXECUTION_ID}}"
+          TimeoutSeconds: 600
+
+  SSMMaintenanceWindowTarget:
+    Type: "AWS::SSM::MaintenanceWindowTarget"
+    Properties:
+      WindowId: "mw-0f56da1547635888e"
+      ResourceType: "INSTANCE"
+      Targets: 
+        - 
+          Key: "tag:Patch Group"
+          Values: 
+            - "iwasapatch"
+      Name: "PatchingTarget"
+      Description: "Created via Patch Manager Configure Patching Wizard"
+
