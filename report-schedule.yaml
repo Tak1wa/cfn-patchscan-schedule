@@ -1,46 +1,85 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Metadata:
-    Generator: "former2"
-Description: ""
+Parameters:
+  EMailAddress: 
+    Type: String
+    Description: Specifies your E-Mail for Patch Scan Report.
+  ScheduleExpression:
+    Type: String
+    Default: "cron(0 3 ? * * *)"
+    Description: ""
+  ReportName:
+    Type: String
+    Description: ""
+Description: "The scheduling expression that determines when and how often the rule runs"
 Resources:
   S3Bucket:
     Type: "AWS::S3::Bucket"
     Properties:
-        BucketName: "iwasa-patch-report-bucket"
+      BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-patch-report-bucket
+      BucketEncryption: 
+          ServerSideEncryptionConfiguration: 
+            - 
+              ServerSideEncryptionByDefault: 
+                  SSEAlgorithm: "AES256"
+              BucketKeyEnabled: false
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration: 
+          Rules: 
+            - 
+              Id: "auto-delete"
+              Status: "Enabled"
+              ExpirationInDays: 400
 
   SNSTopic:
     Type: "AWS::SNS::Topic"
     Properties:
-        DisplayName: "iwasa-patch-report-topic"
-        TopicName: "iwasa-patch-report-topic"
+      DisplayName: !Sub ${AWS::StackName}-patch-report-topic
+      Subscription:
+      - Endpoint: !Ref EMailAddress
+        Protocol: email
+      TopicName: !Sub ${AWS::StackName}-patch-report-topic
 
   SNSTopicPolicy:
     Type: "AWS::SNS::TopicPolicy"
     Properties:
-        PolicyDocument: !Sub "{\"Version\":\"2008-10-17\",\"Id\":\"__default_policy_ID\",\"Statement\":[{\"Sid\":\"__default_statement_ID\",\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"*\"},\"Action\":[\"SNS:GetTopicAttributes\",\"SNS:SetTopicAttributes\",\"SNS:AddPermission\",\"SNS:RemovePermission\",\"SNS:DeleteTopic\",\"SNS:Subscribe\",\"SNS:ListSubscriptionsByTopic\",\"SNS:Publish\",\"SNS:Receive\"],\"Resource\":\"${SNSTopic}\",\"Condition\":{\"StringEquals\":{\"AWS:SourceOwner\":\"${AWS::AccountId}\"}}}]}"
-        Topics: 
-          - !Ref SNSTopic
-
-  SNSSubscription:
-    Type: "AWS::SNS::Subscription"
-    Properties:
-        TopicArn: !Ref SNSTopic
-        Endpoint: "iwasa.takahito@classmethod.jp"
-        Protocol: "email"
-        Region: !Ref AWS::Region
+      Topics: 
+        - !Ref SNSTopic
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+        - Effect: Allow
+          Principal:
+            AWS: "*"
+          Action:
+          - SNS:GetTopicAttributes
+          - SNS:SetTopicAttributes
+          - SNS:AddPermission
+          - SNS:RemovePermission
+          - SNS:DeleteTopic
+          - SNS:Subscribe
+          - SNS:ListSubscriptionsByTopic
+          - SNS:Publish
+          - SNS:Receive
+          Resource: !Ref SNSTopic
+          Condition:
+            StringEquals: 
+              AWS:SourceOwner: !Ref AWS::AccountId
 
   EventsRule:
     Type: "AWS::Events::Rule"
     Properties:
-      Name: "AWS-SystemsManager-PatchManager-PatchReport-iwasa-patch-report"
+      Name: !Sub AWS-SystemsManager-PatchManager-PatchReport-${AWS::StackName}
       Description: "Schedule recurring patch reporting"
-      ScheduleExpression: "rate(10 days)"
+      ScheduleExpression: !Ref ScheduleExpression
       State: "ENABLED"
-      Targets: 
-        - 
-          Arn: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/AWS-ExportPatchReportToS3:$DEFAULT"
-          Id: "AWS-SystemsManager-PatchManager-PatchReport-iwasa-patch-report"
-          Input: !Sub "{\"assumeRole\":[\"arn:aws:iam::${AWS::AccountId}:role/service-role/AWS-SystemsManager-PatchSummaryExportRole\"],\"reportName\": [\"iwasa-patch-report\"],\"s3BucketName\":[\"${S3Bucket}\"],\"targets\":[\"instanceids=*\"],\"snsTopicArn\":[\"${SNSTopic}\"]}"
-          RoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/AWS-EventBridge-Start-SSMAutomationRole"
       EventBusName: "default"
+      Targets: 
+        - Id: !Sub ${AWS::StackName}-patch-report-target
+          Arn: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/AWS-ExportPatchReportToS3:$DEFAULT"
+          RoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/AWS-EventBridge-Start-SSMAutomationRole"
+          Input: !Sub "{\"assumeRole\":[\"arn:aws:iam::${AWS::AccountId}:role/service-role/AWS-SystemsManager-PatchSummaryExportRole\"],\"reportName\": [\"${ReportName}\"],\"s3BucketName\":[\"${S3Bucket}\"],\"targets\":[\"instanceids=*\"],\"snsTopicArn\":[\"${SNSTopic}\"]}"
 
