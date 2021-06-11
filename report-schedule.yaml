@@ -5,8 +5,8 @@ Parameters:
     Description: Specifies your E-Mail for Patch Scan Report.
   ScheduleExpression:
     Type: String
-    Default: "cron(0 3 ? * * *)"
-    Description: ""
+    Default: "cron(10 18 ? * * *)"
+    Description: "cron/rate expression by UTC"
   ReportName:
     Type: String
     Description: ""
@@ -80,8 +80,25 @@ Resources:
       Targets: 
         - Id: !Sub ${AWS::StackName}-patch-report-target
           Arn: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/AWS-ExportPatchReportToS3:$DEFAULT"
-          RoleArn: !Ref PatchAutomationRole
-          Input: !Sub "{\"assumeRole\":[\"${PatchExportRole}\"],\"reportName\": [\"${ReportName}\"],\"s3BucketName\":[\"${S3Bucket}\"],\"targets\":[\"instanceids=*\"],\"snsTopicArn\":[\"${SNSTopic}\"]}"
+          RoleArn: !GetAtt PatchAutomationRole.Arn
+          Input: !Sub | 
+            {
+              "assumeRole": [
+                "${PatchExportRole.Arn}"
+              ],
+              "reportName": [
+                "${ReportName}"
+              ],
+              "s3BucketName": [
+                "${S3Bucket}"
+              ],
+              "targets": [
+                "instanceids=*"
+              ],
+              "snsTopicArn": [
+                "${SNSTopic}"
+              ]
+            }
 
   PatchExportRole:
     Type: "AWS::IAM::Role"
@@ -90,7 +107,7 @@ Resources:
       AssumeRolePolicyDocument: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ssm.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}"
       MaxSessionDuration: 3600
       ManagedPolicyArns: 
-        - !Ref IAMManagedPolicy2
+        - !Ref PatchExportPolicy
       Description: "Service role for lambda to execute csv export of patch reports"
 
   PatchAutomationRole:
@@ -101,10 +118,10 @@ Resources:
       MaxSessionDuration: 3600
       ManagedPolicyArns: 
         - "arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole"
-        - !Ref IAMManagedPolicy
+        - !Ref PatchAutomationPolicy
       Description: "Service role for event bridge to call ssm automation on a schedule"
 
-  IAMManagedPolicy:
+  PatchAutomationPolicy:
     Type: "AWS::IAM::ManagedPolicy"
     Properties:
       ManagedPolicyName: !Sub ${AWS::StackName}-patch-automation-policy
@@ -124,7 +141,7 @@ Resources:
               "Action": [
                 "iam:PassRole"
               ],
-              "Resource": ${PatchExportRole}",
+              "Resource": "${PatchExportRole.Arn}",
               "Condition": {
                 "StringLikeIfExists": {
                   "iam:PassedToService": "ssm.amazonaws.com"
@@ -134,7 +151,7 @@ Resources:
           ]
         }
 
-  IAMManagedPolicy2:
+  PatchExportPolicy:
     Type: "AWS::IAM::ManagedPolicy"
     Properties:
       ManagedPolicyName: !Sub ${AWS::StackName}-patch-summary-export-policy
