@@ -80,6 +80,109 @@ Resources:
       Targets: 
         - Id: !Sub ${AWS::StackName}-patch-report-target
           Arn: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/AWS-ExportPatchReportToS3:$DEFAULT"
-          RoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/AWS-EventBridge-Start-SSMAutomationRole"
-          Input: !Sub "{\"assumeRole\":[\"arn:aws:iam::${AWS::AccountId}:role/service-role/AWS-SystemsManager-PatchSummaryExportRole\"],\"reportName\": [\"${ReportName}\"],\"s3BucketName\":[\"${S3Bucket}\"],\"targets\":[\"instanceids=*\"],\"snsTopicArn\":[\"${SNSTopic}\"]}"
+          RoleArn: !Ref PatchAutomationRole
+          Input: !Sub "{\"assumeRole\":[\"${PatchExportRole}\"],\"reportName\": [\"${ReportName}\"],\"s3BucketName\":[\"${S3Bucket}\"],\"targets\":[\"instanceids=*\"],\"snsTopicArn\":[\"${SNSTopic}\"]}"
 
+  PatchExportRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-patch-summary-export-role
+      AssumeRolePolicyDocument: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ssm.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}"
+      MaxSessionDuration: 3600
+      ManagedPolicyArns: 
+        - !Ref IAMManagedPolicy2
+      Description: "Service role for lambda to execute csv export of patch reports"
+
+  PatchAutomationRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-patch-automation-role
+      AssumeRolePolicyDocument: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"events.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}"
+      MaxSessionDuration: 3600
+      ManagedPolicyArns: 
+        - "arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole"
+        - !Ref IAMManagedPolicy
+      Description: "Service role for event bridge to call ssm automation on a schedule"
+
+  IAMManagedPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: !Sub ${AWS::StackName}-patch-automation-policy
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": "ssm:StartAutomationExecution",
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/AWS-ExportPatchReportToS3:$DEFAULT"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "iam:PassRole"
+              ],
+              "Resource": ${PatchExportRole}",
+              "Condition": {
+                "StringLikeIfExists": {
+                  "iam:PassedToService": "ssm.amazonaws.com"
+                }
+              }
+            }
+          ]
+        }
+
+  IAMManagedPolicy2:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: !Sub ${AWS::StackName}-patch-summary-export-policy
+      PolicyDocument: |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:PutObject"
+              ],
+              "Resource": [
+                "*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetBucketAcl"
+              ],
+              "Resource": [
+                "*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "sns:Publish"
+              ],
+              "Resource": [
+                "*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ssm:DescribeInstancePatchStates",
+                "ssm:DescribeInstancePatches",
+                "ssm:ListComplianceItems",
+                "ssm:ListResourceComplianceSummaries",
+                "ssm:DescribeInstanceInformation",
+                "ssm:GetInventory",
+                "ec2:DescribeInstances"
+              ],
+              "Resource": [
+                "*"
+              ]
+            }
+          ]
+        }
